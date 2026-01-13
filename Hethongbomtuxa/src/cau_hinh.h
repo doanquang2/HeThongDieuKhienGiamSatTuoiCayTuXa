@@ -14,7 +14,7 @@
 #define PIN_RELAY_SOURCE 12 
 #define PIN_RS485_RX 16
 #define PIN_RS485_TX 17
-#define PIN_PRESSURE_SWITCH 4 // Chân Rơ-le áp suất (Nối GND khi đóng/lỗi)
+#define PIN_PRESSURE_SWITCH 19// Chân Rơ-le áp suất (Nối GND khi đóng/lỗi)
 
 // --- CẤU HÌNH MẠNG ---
 #define STATIC_IP_SUFFIX 100 

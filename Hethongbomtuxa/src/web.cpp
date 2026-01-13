@@ -34,7 +34,10 @@ void handleSetTime() {
     int h = dt.substring(11, 13).toInt();
     int min = dt.substring(14, 16).toInt();
     
-    rtc.adjust(DateTime(y, m, d, h, min, 0));
+    if (rtcFound && xSemaphoreTake(rtcMutex, portMAX_DELAY) == pdTRUE) {
+      rtc.adjust(DateTime(y, m, d, h, min, 0));
+      xSemaphoreGive(rtcMutex);
+    }
     Serial.println("Da cap nhat thoi gian RTC: " + dt);
   }
   server.sendHeader("Location", "/");
@@ -55,22 +58,44 @@ void handleToggleMode() {
 }
 
 void handleStatus() {
-  DateTime now = rtc.now();
-  char timeStr[10];
-  sprintf(timeStr, "%02d:%02d", now.hour(), now.minute());
+  String timeStr = "--:--";
+  if (rtcFound && xSemaphoreTake(rtcMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    if (rtcFound) {
+      DateTime now = rtc.now();
+      char buf[10];
+      sprintf(buf, "%02d:%02d", now.hour(), now.minute());
+      timeStr = String(buf);
+    }
+    xSemaphoreGive(rtcMutex);
+  }
+
+  // Tính toán đếm ngược thời gian chờ phản hồi (Timeout 40s)
+  long countdown = 0;
+  if (isAutoMode && (currentState == WAIT_VALVE_FEEDBACK || currentState == WAIT_NEXT_VALVE_FEEDBACK)) {
+    countdown = (40000 - (millis() - stateTimer)) / 1000;
+    if (countdown < 0) countdown = 0;
+  }
 
   String json = "{";
-  json += "\"time\":\"" + String(timeStr) + "\",";
+  json += "\"time\":\"" + timeStr + "\",";
   json += "\"isAuto\":" + String(isAutoMode ? "true" : "false") + ",";
   json += "\"pump\":" + String(digitalRead(PIN_RELAY_PUMP)) + ",";
   json += "\"source\":" + String(digitalRead(PIN_RELAY_SOURCE)) + ",";
   json += "\"fault\":" + String(isPressureFault ? "true" : "false") + ",";
+  json += "\"slave1\":" + String(slave1Connected ? "true" : "false") + ",";
+  json += "\"slave2\":" + String(slave2Connected ? "true" : "false") + ",";
   
   // Xác định van đang mở (chỉ khi đang chạy Auto và không ở trạng thái chờ)
   int activeValve = (isAutoMode && currentState != IDLE && currentState != FINISH) ? currentValveIndex : 0;
   json += "\"activeValve\":" + String(activeValve) + ",";
+  json += "\"countdown\":" + String(countdown) + ",";
   
-  json += "\"log\":\"" + webLog + "\"";
+  if (xSemaphoreTake(logMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    json += "\"log\":\"" + webLog + "\"";
+    xSemaphoreGive(logMutex);
+  } else {
+    json += "\"log\":\"System Busy...\"";
+  }
   json += "}";
 
   server.send(200, "application/json", json);
@@ -108,6 +133,10 @@ void handleControl() {
       addToLog("Đã Reset lỗi từ Web.");
     } else if (dev == "clear_fault_log") {
       faultLog = ""; // Xóa lịch sử lỗi
+    } else if (dev == "reboot") {
+      server.send(200, "text/plain", "Rebooting...");
+      delay(500);
+      ESP.restart();
     } else if (isPressureFault) {
       // Nếu đang lỗi thì không cho điều khiển gì khác
     } else if (!isAutoMode) {

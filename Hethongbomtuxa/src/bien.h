@@ -5,6 +5,8 @@
 #include <RTClib.h>
 #include <WebServer.h>
 #include <Preferences.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 // Máy trạng thái cho chế độ AUTO
 enum AutoState {
@@ -15,8 +17,9 @@ enum AutoState {
   START_PUMP,
   PUMPING,
   SWITCH_SOURCE_ON,    // Bật nguồn để chuẩn bị chuyển van
-  SWAP_VALVES,         // Gửi lệnh mở van mới và đóng van cũ
-  WAIT_SWAP_COMPLETE,  // Đợi van chạy hết hành trình
+  OPEN_NEXT_VALVE,     // Mở van kế tiếp
+  WAIT_NEXT_VALVE_FEEDBACK, // Đợi phản hồi van kế tiếp
+  CLOSE_PREV_VALVE,    // Đóng van cũ
   SWITCH_SOURCE_OFF,   // Tắt nguồn nuôi van
   STOP_PUMP,           // Chỉ tắt bơm khi hết van 8
   CLOSE_LAST_VALVE,    // Đóng van cuối cùng
@@ -28,6 +31,12 @@ extern RTC_DS3231 rtc;
 extern WebServer server;
 extern Preferences preferences;
 extern HardwareSerial RS485;
+extern bool rtcFound; // Biến kiểm tra trạng thái RTC
+
+// Mutex cho FreeRTOS
+extern SemaphoreHandle_t logMutex;   // Bảo vệ biến webLog/faultLog
+extern SemaphoreHandle_t rtcMutex;   // Bảo vệ I2C RTC
+extern SemaphoreHandle_t rs485Mutex; // Bảo vệ RS485 Serial
 
 extern bool isAutoMode;
 extern int currentValveIndex;
@@ -37,9 +46,12 @@ extern int startHour2, startMin2;
 extern AutoState currentState;
 extern unsigned long stateTimer;
 extern bool feedbackReceived;
+extern int retryCount;
 extern String webLog;
 extern bool isPressureFault; // Biến trạng thái lỗi áp suất
 extern String faultLog;      // Biến lưu lịch sử lỗi
+extern bool slave1Connected;
+extern bool slave2Connected;
 void addToLog(String msg);
 void addToFaultLog(String msg); // Hàm ghi lỗi riêng
 
